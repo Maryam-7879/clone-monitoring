@@ -161,15 +161,15 @@ const CallReports: React.FC = () => {
     }
   }, [isAgent, userExtension]);
 
-  // تنظیم تاریخ ماه جاری به طور پیش‌فرض
+  // تنظیم تاریخ هفته جاری به طور پیش‌فرض
   useEffect(() => {
-    if (isMonthlyView) {
+    if (isWeeklyView) {
       const now = new Date();
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      const sevenDaysAgo = new Date(now);
+      sevenDaysAgo.setDate(now.getDate() - 7);
 
-      const fromIso = firstDay.toISOString().slice(0, 10);
-      const toIso = lastDay.toISOString().slice(0, 10);
+      const fromIso = sevenDaysAgo.toISOString().slice(0, 10);
+      const toIso = now.toISOString().slice(0, 10);
 
       setFilters(prev => ({ ...prev, from: fromIso, to: toIso }));
     }
@@ -178,7 +178,7 @@ const CallReports: React.FC = () => {
   const [fromDate, setFromDate] = useState<any>(null);
   const [toDate, setToDate] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isMonthlyView, setIsMonthlyView] = useState(true);
+  const [isWeeklyView, setIsWeeklyView] = useState(true);
 
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [stats, setStats] = useState<StatsType>({
@@ -460,25 +460,25 @@ const CallReports: React.FC = () => {
     setToDate(null);
     setSearchTerm('');
     setCurrentPage(1);
-    showMonthlyReports();
+    showWeeklyReports();
   };
 
   const showAllReports = () => {
-    setIsMonthlyView(false);
+    setIsWeeklyView(false);
     setFilters(prev => ({ ...prev, from: '', to: '' }));
     setFromDate(null);
     setToDate(null);
     setCurrentPage(1);
   };
 
-  const showMonthlyReports = () => {
-    setIsMonthlyView(true);
+  const showWeeklyReports = () => {
+    setIsWeeklyView(true);
     const now = new Date();
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const sevenDaysAgo = new Date(now);
+    sevenDaysAgo.setDate(now.getDate() - 7);
 
-    const fromIso = firstDay.toISOString().slice(0, 10);
-    const toIso = lastDay.toISOString().slice(0, 10);
+    const fromIso = sevenDaysAgo.toISOString().slice(0, 10);
+    const toIso = now.toISOString().slice(0, 10);
 
     setFilters(prev => ({ ...prev, from: fromIso, to: toIso }));
     setFromDate(null);
@@ -555,18 +555,18 @@ const CallReports: React.FC = () => {
       <div className="bg-white rounded-lg shadow p-4">
         <div className="flex items-center space-x-3 space-x-reverse">
           <div className={`px-4 py-2 rounded-lg font-medium text-sm ${
-            isMonthlyView
+            isWeeklyView
               ? 'bg-blue-100 text-blue-700'
               : 'bg-slate-100 text-slate-700'
           }`}>
-            {isMonthlyView ? 'گزارش ماهانه' : 'همه گزارش‌ها'}
+            {isWeeklyView ? 'گزارش هفتگی' : 'همه گزارش‌ها'}
           </div>
-          {isMonthlyView && (
+          {isWeeklyView && (
             <span className="text-sm text-slate-600">
-              (ماه جاری)
+              (7 روز اخیر)
             </span>
           )}
-          {isMonthlyView ? (
+          {isWeeklyView ? (
             <button
               onClick={showAllReports}
               className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm font-medium"
@@ -575,10 +575,10 @@ const CallReports: React.FC = () => {
             </button>
           ) : (
             <button
-              onClick={showMonthlyReports}
+              onClick={showWeeklyReports}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
             >
-              بازگشت به گزارش ماهانه
+              بازگشت به گزارش هفتگی
             </button>
           )}
         </div>
@@ -671,7 +671,7 @@ const CallReports: React.FC = () => {
                       const d: Date = (value as any).toDate();
                       const iso = d.toISOString().slice(0, 10);
                       setFilters((prev) => ({ ...prev, from: iso }));
-                      setIsMonthlyView(false);
+                      setIsWeeklyView(false);
                     } else {
                       setFilters((prev) => ({ ...prev, from: '' }));
                     }
@@ -702,7 +702,7 @@ const CallReports: React.FC = () => {
                       const d: Date = (value as any).toDate();
                       const iso = d.toISOString().slice(0, 10);
                       setFilters((prev) => ({ ...prev, to: iso }));
-                      setIsMonthlyView(false);
+                      setIsWeeklyView(false);
                     } else {
                       setFilters((prev) => ({ ...prev, to: '' }));
                     }
