@@ -1,5 +1,5 @@
-import React from 'react';
-import { Phone, PhoneOff, PhoneIncoming, CheckCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { Phone, PhoneOff, PhoneIncoming, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import type { ExtensionStatus } from '../../types/dashboard';
 
 interface ExtensionStatusGridProps {
@@ -7,6 +7,8 @@ interface ExtensionStatusGridProps {
 }
 
 const ExtensionStatusGrid: React.FC<ExtensionStatusGridProps> = ({ extensions }) => {
+  const [showAll, setShowAll] = useState(false);
+  const INITIAL_DISPLAY_COUNT = 8;
   const getStatusInfo = (status: string) => {
     switch (status) {
       case 'busy':
@@ -48,6 +50,9 @@ const ExtensionStatusGrid: React.FC<ExtensionStatusGridProps> = ({ extensions })
     }
   };
 
+  const displayedExtensions = showAll ? extensions : extensions.slice(0, INITIAL_DISPLAY_COUNT);
+  const hasMore = extensions.length > INITIAL_DISPLAY_COUNT;
+
   return (
     <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200">
       <div className="flex items-center justify-between mb-6">
@@ -56,7 +61,7 @@ const ExtensionStatusGrid: React.FC<ExtensionStatusGridProps> = ({ extensions })
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {extensions.map((ext) => {
+        {displayedExtensions.map((ext) => {
           const statusInfo = getStatusInfo(ext.status);
           const StatusIcon = statusInfo.icon;
           const successRate = ext.todayStats.total > 0
@@ -125,6 +130,27 @@ const ExtensionStatusGrid: React.FC<ExtensionStatusGridProps> = ({ extensions })
           );
         })}
       </div>
+
+      {hasMore && (
+        <div className="mt-6 flex justify-center">
+          <button
+            onClick={() => setShowAll(!showAll)}
+            className="flex items-center space-x-2 space-x-reverse px-6 py-3 bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium rounded-lg transition-colors"
+          >
+            {showAll ? (
+              <>
+                <ChevronUp className="h-5 w-5" />
+                <span>بستن</span>
+              </>
+            ) : (
+              <>
+                <ChevronDown className="h-5 w-5" />
+                <span>نمایش همه داخلی‌ها</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
