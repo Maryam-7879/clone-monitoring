@@ -161,9 +161,24 @@ const CallReports: React.FC = () => {
     }
   }, [isAgent, userExtension]);
 
+  // تنظیم تاریخ ماه جاری به طور پیش‌فرض
+  useEffect(() => {
+    if (isMonthlyView) {
+      const now = new Date();
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+      const fromIso = firstDay.toISOString().slice(0, 10);
+      const toIso = lastDay.toISOString().slice(0, 10);
+
+      setFilters(prev => ({ ...prev, from: fromIso, to: toIso }));
+    }
+  }, []);
+
   const [fromDate, setFromDate] = useState<any>(null);
   const [toDate, setToDate] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isMonthlyView, setIsMonthlyView] = useState(true);
 
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [stats, setStats] = useState<StatsType>({
@@ -437,13 +452,37 @@ const CallReports: React.FC = () => {
       to: '',
       timeFrom: '',
       timeTo: '',
-      extension: '',
+      extension: isAgent && userExtension ? userExtension : '',
       status: 'all',
       direction: 'all',
     });
     setFromDate(null);
     setToDate(null);
     setSearchTerm('');
+    setCurrentPage(1);
+    showMonthlyReports();
+  };
+
+  const showAllReports = () => {
+    setIsMonthlyView(false);
+    setFilters(prev => ({ ...prev, from: '', to: '' }));
+    setFromDate(null);
+    setToDate(null);
+    setCurrentPage(1);
+  };
+
+  const showMonthlyReports = () => {
+    setIsMonthlyView(true);
+    const now = new Date();
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+    const fromIso = firstDay.toISOString().slice(0, 10);
+    const toIso = lastDay.toISOString().slice(0, 10);
+
+    setFilters(prev => ({ ...prev, from: fromIso, to: toIso }));
+    setFromDate(null);
+    setToDate(null);
     setCurrentPage(1);
   };
 
@@ -509,6 +548,43 @@ const CallReports: React.FC = () => {
             <RotateCcw className="h-4 w-4" />
             <span>بازخوانی</span>
           </button>
+        </div>
+      </div>
+
+      {/* نشانگر نوع گزارش و دکمه تغییر حالت */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3 space-x-reverse">
+            <div className={`px-4 py-2 rounded-lg font-medium text-sm ${
+              isMonthlyView
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-slate-100 text-slate-700'
+            }`}>
+              {isMonthlyView ? 'گزارش ماهانه' : 'همه گزارش‌ها'}
+            </div>
+            {isMonthlyView && (
+              <span className="text-sm text-slate-600">
+                (ماه جاری)
+              </span>
+            )}
+          </div>
+          <div className="flex items-center space-x-2 space-x-reverse">
+            {isMonthlyView ? (
+              <button
+                onClick={showAllReports}
+                className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm font-medium"
+              >
+                نمایش همه گزارش‌ها
+              </button>
+            ) : (
+              <button
+                onClick={showMonthlyReports}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+              >
+                بازگشت به گزارش ماهانه
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -599,6 +675,7 @@ const CallReports: React.FC = () => {
                       const d: Date = (value as any).toDate();
                       const iso = d.toISOString().slice(0, 10);
                       setFilters((prev) => ({ ...prev, from: iso }));
+                      setIsMonthlyView(false);
                     } else {
                       setFilters((prev) => ({ ...prev, from: '' }));
                     }
@@ -629,6 +706,7 @@ const CallReports: React.FC = () => {
                       const d: Date = (value as any).toDate();
                       const iso = d.toISOString().slice(0, 10);
                       setFilters((prev) => ({ ...prev, to: iso }));
+                      setIsMonthlyView(false);
                     } else {
                       setFilters((prev) => ({ ...prev, to: '' }));
                     }
