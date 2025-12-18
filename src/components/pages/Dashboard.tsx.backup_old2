@@ -1,0 +1,623 @@
+import React, { useEffect, useState } from 'react';
+import { Phone, Users, Clock, Star, TrendingUp, CheckCircle, XCircle, AlertCircle, Activity, BarChart3, Calendar, ArrowUp, ArrowDown, Zap, Target, Award, PhoneCall } from 'lucide-react';
+import { getKpis, getScoreDist } from '../../services/api.survey';
+import { getCallReports, type CallReport } from '../../services/api.callreports';
+
+type ExtensionStats = {
+  total: number;
+  answered: number;
+  missed: number;
+  cancelled: number;
+};
+
+type HourlyStat = {
+  hour: string;
+  calls: number;
+  trend: 'up' | 'down';
+};
+
+type DashboardStats = {
+  totalCalls: {
+    today: number;
+    thisWeek: number;
+    thisMonth: number;
+  };
+  callStatus: {
+    answered: number;
+    missed: number;
+    cancelled: number;
+  };
+  averageDuration: string;
+  satisfactionRate: number;
+  totalSurveys: number;
+};
+
+
+const Dashboard: React.FC = () => {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [extensionStats, setExtensionStats] = useState<Record<string, ExtensionStats>>({});
+  const [hourlyStats, setHourlyStats] = useState<HourlyStat[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        const todayStr = `${yyyy}-${mm}-${dd}`;
+
+        const [kpis, scoreRows, callReports] = await Promise.all([
+          getKpis(),
+          getScoreDist(),
+          getCallReports({
+            search: '',
+            dateFrom: todayStr,
+            dateTo: todayStr,
+            extension: 'all',
+            status: 'all',
+            page: 1,
+            limit: 200,
+          }),
+        ]);
+
+        if (cancelled) return;
+
+        // محاسبه درصد رضایت از روی توزیع امتیازها
+        const dist = scoreRows || [];
+        const totalAnswers = dist.reduce((sum, r) => sum + r.count, 0);
+        const satisfied = dist
+          .filter((r) => r.score >= 4)
+          .reduce((sum, r) => sum + r.count, 0);
+        const satisfactionRate =
+          totalAnswers > 0 ? Math.round((satisfied / totalAnswers) * 100) : 0;
+
+        let todayTotalCalls = 0;
+        let todayAnswered = 0;
+        let todayMissed = 0;
+        let todayCancelled = 0;
+
+        if (callReports?.success && callReports.data) {
+          const s = callReports.data.stats as {
+            total?: number;
+            answered?: number;
+            missed?: number;
+            cancelled?: number;
+          };
+
+          todayTotalCalls = s?.total ?? 0;
+          todayAnswered = s?.answered ?? 0;
+          todayMissed = s?.missed ?? 0;
+          todayCancelled = s?.cancelled ?? 0;
+        }
+
+        const dashboardStats: DashboardStats = {
+          totalCalls: {
+            today: todayTotalCalls,
+            thisWeek: kpis.total_calls ?? kpis.today_calls ?? 0,
+            thisMonth: kpis.total_calls ?? 0,
+          },
+          callStatus: {
+            answered: todayAnswered,
+            missed: todayMissed,
+            cancelled: todayCancelled,
+          },
+          averageDuration: kpis.avg_call_duration || '۰:۰۰',
+          satisfactionRate,
+          totalSurveys: kpis.total_surveys ?? 0,
+        };
+
+        setStats(dashboardStats);
+
+        // آمار داخلی‌ها و ساعات اوج از روی گزارش تماس‌ها
+        if (callReports?.success && callReports.data) {
+          const extStats: Record<string, ExtensionStats> = {};
+          const hourMap: Record<string, number> = {};
+
+          for (const c of callReports.data.calls as CallReport[]) {
+            const ext = c.extension || 'نامشخص';
+            if (!extStats[ext]) {
+              extStats[ext] = { total: 0, answered: 0, missed: 0, cancelled: 0 };
+            }
+            extStats[ext].total += 1;
+            if (c.status === 'answered') extStats[ext].answered += 1;
+            else if (c.status === 'missed') extStats[ext].missed += 1;
+            else if (c.status === 'cancelled') extStats[ext].cancelled += 1;
+
+            const hour = (c.time || '').split(':')[0] || '';
+            if (!hour) continue;
+            hourMap[hour] = (hourMap[hour] || 0) + 1;
+          }
+
+          setExtensionStats(extStats);
+
+          const hoursSorted: HourlyStat[] = Object.keys(hourMap)
+            .sort()
+            .map((hour) => ({
+              hour,
+              calls: hourMap[hour],
+              trend: 'up',
+            }));
+
+          setHourlyStats(hoursSorted);
+        } else {
+          setExtensionStats({});
+          setHourlyStats([]);
+        }
+      } catch (err: any) {
+        console.error(err);
+        if (!cancelled) {
+          setError(err?.message || 'خطا در خواندن اطلاعات داشبورد');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return <div className="p-6 text-slate-600">در حال بارگذاری داشبورد...</div>;
+  }
+
+  if (error || !stats) {
+    return <div className="p-6 text-red-600">{error || 'خطا در دریافت داده‌های داشبورد'}</div>;
+  }
+
+  const satisfactionPercentage = stats.satisfactionRate;
+
+  const totalStatusCalls =
+    stats.callStatus.answered + stats.callStatus.missed + stats.callStatus.cancelled;
+  const statusPercentages =
+    totalStatusCalls > 0
+      ? {
+          answered: (stats.callStatus.answered / totalStatusCalls) * 100,
+          missed: (stats.callStatus.missed / totalStatusCalls) * 100,
+          cancelled: (stats.callStatus.cancelled / totalStatusCalls) * 100,
+        }
+      : { answered: 0, missed: 0, cancelled: 0 };
+
+  const maxHourlyCalls =
+    hourlyStats.length > 0 ? Math.max(...hourlyStats.map((h) => h.calls)) : 0;
+
+  return (
+    <div className="space-y-8">
+      {/* عنوان صفحه */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold text-slate-800 mb-2">نمای کلی سیستم</h2>
+          <p className="text-slate-600">آخرین بروزرسانی: امروز ۱۴:۳۰</p>
+        </div>
+        <div className="flex items-center space-x-3 space-x-reverse">
+          <div className="text-right mr-4 hidden sm:block">
+            <div className="text-sm font-semibold text-slate-700">سامانه مانیتورینگ تماس</div>
+            <div className="text-xs text-slate-500">شبکه سازان تدبیر پارس</div>
+          </div>
+          <div className="flex items-center space-x-2 space-x-reverse bg-green-50 px-3 py-2 rounded-lg">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <span className="text-green-700 text-sm font-medium">وضعیت اتصال</span>
+          </div>
+          <div className="text-sm text-slate-500 persian-numbers">۱۴۰۳/۱۰/۲۲</div>
+        </div>
+      </div>
+
+      {/* کارت‌های آماری اصلی - ردیف اول */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* تماس‌های امروز */}
+        <div className="bg-gradient-to-br from-red-500 to-red-600 p-6 rounded-2xl text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-white bg-opacity-20 p-3 rounded-xl">
+              <Phone className="h-8 w-8 text-white" />
+            </div>
+            <div className="text-right">
+              <div className="text-sm opacity-90">تماس‌های امروز</div>
+              <div className="text-3xl font-bold persian-numbers">{stats.totalCalls.today}</div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 space-x-reverse bg-white bg-opacity-20 px-3 py-1 rounded-full">
+              <ArrowUp className="h-4 w-4" />
+              <span className="text-sm persian-numbers">+۱۲%</span>
+            </div>
+            <div className="text-sm opacity-90">نسبت به دیروز</div>
+          </div>
+        </div>
+
+        {/* تماس‌های هفته */}
+        <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-6 rounded-2xl text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-white bg-opacity-20 p-3 rounded-xl">
+              <BarChart3 className="h-8 w-8 text-white" />
+            </div>
+            <div className="text-right">
+              <div className="text-sm opacity-90">تماس‌های هفته</div>
+              <div className="text-3xl font-bold persian-numbers">{stats.totalCalls.thisWeek}</div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 space-x-reverse bg-white bg-opacity-20 px-3 py-1 rounded-full">
+              <ArrowUp className="h-4 w-4" />
+              <span className="text-sm persian-numbers">+۸%</span>
+            </div>
+            <div className="text-sm opacity-90">نسبت به هفته قبل</div>
+          </div>
+        </div>
+
+        {/* میانگین مدت تماس */}
+        <div className="bg-gradient-to-br from-yellow-500 to-yellow-600 p-6 rounded-2xl text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-white bg-opacity-20 p-3 rounded-xl">
+              <Clock className="h-8 w-8 text-white" />
+            </div>
+            <div className="text-right">
+              <div className="text-sm opacity-90">میانگین مدت تماس</div>
+              <div className="text-3xl font-bold persian-numbers">{stats.averageDuration}</div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 space-x-reverse bg-white bg-opacity-20 px-3 py-1 rounded-full">
+              <Clock className="h-4 w-4" />
+              <span className="text-sm">دقیقه:ثانیه</span>
+            </div>
+            <div className="text-sm opacity-90">زمان مکالمه</div>
+          </div>
+        </div>
+
+        {/* درصد رضایت */}
+        <div className="bg-gradient-to-br from-green-500 to-green-600 p-6 rounded-2xl text-white shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-105">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-white bg-opacity-20 p-3 rounded-xl">
+              <Star className="h-8 w-8 text-white" />
+            </div>
+            <div className="text-right">
+              <div className="text-sm opacity-90">درصد رضایت</div>
+              <div className="text-3xl font-bold persian-numbers">{stats.satisfactionRate}%</div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 space-x-reverse bg-white bg-opacity-20 px-3 py-1 rounded-full">
+              <Star className="h-4 w-4 fill-current" />
+              <span className="text-sm">عالی</span>
+            </div>
+            <div className="text-sm opacity-90">امتیاز کلی</div>
+          </div>
+        </div>
+      </div>
+
+      {/* کارت‌های آماری ثانویه - ردیف دوم */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* تماس‌های پاسخ داده شده */}
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200 hover:shadow-xl transition-all duration-300">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-green-100 p-3 rounded-xl">
+              <CheckCircle className="h-6 w-6 text-green-600" />
+            </div>
+            <div className="text-right">
+              <div className="text-sm text-slate-600">پاسخ داده شده</div>
+              <div className="text-2xl font-bold text-green-600 persian-numbers">{stats.callStatus.answered}</div>
+            </div>
+          </div>
+          <div className="text-xs text-slate-500 persian-numbers">
+            {Math.round(statusPercentages.answered)}% از کل تماس‌ها
+          </div>
+        </div>
+
+        {/* تماس‌های بی‌پاسخ */}
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200 hover:shadow-xl transition-all duration-300">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-yellow-100 p-3 rounded-xl">
+              <AlertCircle className="h-6 w-6 text-yellow-600" />
+            </div>
+            <div className="text-right">
+              <div className="text-sm text-slate-600">بی‌پاسخ</div>
+              <div className="text-2xl font-bold text-yellow-600 persian-numbers">{stats.callStatus.missed}</div>
+            </div>
+          </div>
+          <div className="text-xs text-slate-500 persian-numbers">
+            {Math.round(statusPercentages.missed)}% از کل تماس‌ها
+          </div>
+        </div>
+
+        {/* تماس‌های لغوشده */}
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200 hover:shadow-xl transition-all duration-300">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-red-100 p-3 rounded-xl">
+              <XCircle className="h-6 w-6 text-red-600" />
+            </div>
+            <div className="text-right">
+              <div className="text-sm text-slate-600">لغوشده</div>
+              <div className="text-2xl font-bold text-red-600 persian-numbers">{stats.callStatus.cancelled}</div>
+            </div>
+          </div>
+          <div className="text-xs text-slate-500 persian-numbers">
+            {Math.round(statusPercentages.cancelled)}% از کل تماس‌ها
+          </div>
+        </div>
+
+        {/* تماس‌های فعال */}
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200 hover:shadow-xl transition-all duration-300">
+          <div className="flex items-center justify-between mb-4">
+            <div className="bg-purple-100 p-3 rounded-xl">
+              <PhoneCall className="h-6 w-6 text-purple-600" />
+            </div>
+            <div className="text-right">
+              <div className="text-sm text-slate-600">تماس‌های فعال</div>
+              <div className="text-2xl font-bold text-purple-600 persian-numbers">۴</div>
+            </div>
+          </div>
+          <div className="text-xs text-slate-500">
+            در حال مکالمه
+          </div>
+        </div>
+      </div>
+
+      {/* نمودارها - ردیف سوم */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* نمودار خطی تماس‌های ساعتی */}
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-semibold text-slate-800">تماس‌های ساعتی امروز</h3>
+            <div className="flex items-center space-x-2 space-x-reverse text-sm text-slate-500">
+              <Activity className="h-4 w-4" />
+              <span>زنده</span>
+            </div>
+          </div>
+          <div className="space-y-3">
+            {hourlyStats.map((hour, index) => (
+              <div key={hour.hour} className="flex items-center justify-between">
+                <div className="flex items-center space-x-3 space-x-reverse">
+                  <div className="w-12 h-8 bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg flex items-center justify-center text-white text-sm font-medium persian-numbers">
+                    {hour.hour}
+                  </div>
+                  <div className="flex items-center space-x-2 space-x-reverse">
+                    {hour.trend === 'up' ? (
+                      <ArrowUp className="h-4 w-4 text-green-500" />
+                    ) : (
+                      <ArrowDown className="h-4 w-4 text-red-500" />
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center space-x-4 space-x-reverse flex-1 mr-4">
+                  <div className="flex-1 bg-slate-200 rounded-full h-3 relative overflow-hidden">
+                    <div
+                      className="chart-bar bg-gradient-to-l from-blue-500 to-blue-600 h-3 rounded-full"
+                      style={{ 
+                        width: `${(hour.calls / maxHourlyCalls) * 100}%`,
+                        animationDelay: `${index * 0.1}s`
+                      }}
+                    ></div>
+                  </div>
+                  <span className="text-sm font-semibold text-slate-800 persian-numbers w-8">{hour.calls}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* نمودار دایره‌ای وضعیت تماس‌ها */}
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-semibold text-slate-800">وضعیت تماس‌های امروز</h3>
+            <div className="text-sm text-slate-500 persian-numbers">{totalStatusCalls} تماس</div>
+          </div>
+          <div className="flex items-center justify-center mb-6">
+            <div className="relative">
+              <svg className="transform -rotate-90" width="200" height="200">
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="90"
+                  stroke="#f1f5f9"
+                  strokeWidth="12"
+                  fill="none"
+                />
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="90"
+                  stroke="#10b981"
+                  strokeWidth="12"
+                  fill="none"
+                  strokeDasharray={`${(statusPercentages.answered / 100) * 565} 565`}
+                  strokeDashoffset="0"
+                  className="chart-segment"
+                />
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="90"
+                  stroke="#f59e0b"
+                  strokeWidth="12"
+                  fill="none"
+                  strokeDasharray={`${(statusPercentages.missed / 100) * 565} 565`}
+                  strokeDashoffset={`-${(statusPercentages.answered / 100) * 565}`}
+                  className="chart-segment"
+                />
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="90"
+                  stroke="#ef4444"
+                  strokeWidth="12"
+                  fill="none"
+                  strokeDasharray={`${(statusPercentages.cancelled / 100) * 565} 565`}
+                  strokeDashoffset={`-${((statusPercentages.answered + statusPercentages.missed) / 100) * 565}`}
+                  className="chart-segment"
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-slate-800 persian-numbers">{totalStatusCalls}</p>
+                  <p className="text-sm text-slate-600">کل تماس‌ها</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+              <div className="flex items-center space-x-3 space-x-reverse">
+                <div className="w-4 h-4 bg-green-500 rounded-full"></div>
+                <span className="text-sm font-medium text-slate-700">پاسخ داده شده</span>
+              </div>
+              <span className="text-sm font-semibold text-slate-800 persian-numbers">
+                {stats.callStatus.answered} ({Math.round(statusPercentages.answered)}%)
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
+              <div className="flex items-center space-x-3 space-x-reverse">
+                <div className="w-4 h-4 bg-yellow-500 rounded-full"></div>
+                <span className="text-sm font-medium text-slate-700">بی‌پاسخ</span>
+              </div>
+              <span className="text-sm font-semibold text-slate-800 persian-numbers">
+                {stats.callStatus.missed} ({Math.round(statusPercentages.missed)}%)
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+              <div className="flex items-center space-x-3 space-x-reverse">
+                <div className="w-4 h-4 bg-red-500 rounded-full"></div>
+                <span className="text-sm font-medium text-slate-700">لغوشده</span>
+              </div>
+              <span className="text-sm font-semibold text-slate-800 persian-numbers">
+                {stats.callStatus.cancelled} ({Math.round(statusPercentages.cancelled)}%)
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* نمودارهای ردیف چهارم */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* نمودار عملکرد داخلی‌ها */}
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-semibold text-slate-800">عملکرد داخلی‌ها</h3>
+            <div className="flex items-center space-x-2 space-x-reverse text-sm text-slate-500">
+              <Users className="h-4 w-4" />
+              <span>امروز</span>
+            </div>
+          </div>
+          <div className="space-y-4">
+            {Object.entries(extensionStats).map(([extension, stats], index) => {
+              const successRate = stats.total > 0 ? (stats.answered / stats.total) * 100 : 0;
+              return (
+                <div key={extension} className="p-4 bg-slate-50 rounded-xl">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-3 space-x-reverse">
+                      <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl flex items-center justify-center text-white text-sm font-bold persian-numbers">
+                        {extension}
+                      </div>
+                      <div>
+                        <div className="font-medium text-slate-800">داخلی {extension}</div>
+                        <div className="text-sm text-slate-500 persian-numbers">{stats.total} تماس</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-lg font-bold text-slate-800 persian-numbers">{Math.round(successRate)}%</div>
+                      <div className="text-xs text-slate-500">نرخ موفقیت</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="bg-green-100 text-green-800 px-2 py-1 rounded text-center persian-numbers">
+                      پاسخ: {stats.answered}
+                    </div>
+                    <div className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-center persian-numbers">
+                      بی‌پاسخ: {stats.missed}
+                    </div>
+                    <div className="bg-red-100 text-red-800 px-2 py-1 rounded text-center persian-numbers">
+                      لغو: {stats.cancelled}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* نمودار رضایت‌مندی */}
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-semibold text-slate-800">رضایت‌مندی مشتریان</h3>
+            <div className="flex items-center space-x-2 space-x-reverse text-sm text-slate-500">
+              <Star className="h-4 w-4" />
+              <span>این ماه</span>
+            </div>
+          </div>
+          <div className="flex items-center justify-center mb-6">
+            <div className="relative">
+              <svg className="transform -rotate-90" width="160" height="160">
+                <circle
+                  cx="80"
+                  cy="80"
+                  r="60"
+                  stroke="#f1f5f9"
+                  strokeWidth="12"
+                  fill="none"
+                />
+                <circle
+                  cx="80"
+                  cy="80"
+                  r="60"
+                  stroke="#10b981"
+                  strokeWidth="12"
+                  fill="none"
+                  strokeDasharray={`${(satisfactionPercentage / 100) * 377} 377`}
+                  strokeLinecap="round"
+                  className="animate-circle-draw"
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-green-600 persian-numbers">{satisfactionPercentage}%</p>
+                  <p className="text-sm text-slate-600">رضایت کلی</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+              <div className="flex items-center space-x-2 space-x-reverse">
+                <Star className="h-5 w-5 text-yellow-400 fill-current" />
+                <span className="text-sm text-slate-700">امتیاز میانگین</span>
+              </div>
+              <span className="text-sm font-semibold text-slate-800 persian-numbers">۴.۲ از ۵</span>
+            </div>
+            <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+              <div className="flex items-center space-x-2 space-x-reverse">
+                <Users className="h-5 w-5 text-blue-500" />
+                <span className="text-sm text-slate-700">تعداد نظرسنجی</span>
+              </div>
+              <span className="text-sm font-semibold text-slate-800 persian-numbers">{stats.totalSurveys}</span>
+            </div>
+            <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
+              <div className="flex items-center space-x-2 space-x-reverse">
+                <TrendingUp className="h-5 w-5 text-purple-500" />
+                <span className="text-sm text-slate-700">روند</span>
+              </div>
+              <span className="text-sm font-semibold text-green-600">صعودی</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Dashboard;
